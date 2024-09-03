@@ -1,0 +1,167 @@
+#include <opencv2/opencv.hpp>
+#include <opencv2/ml.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
+#include <iostream>
+#include <Windows.h>
+using namespace cv;
+using namespace std;
+using namespace cv::ml;
+vector<Mat> trainimg, testimg;
+vector<int> trainlb, testlb;
+void preprocess_images(string input_folder_path, string output, short label, int no)
+{
+    // Define the folder path 
+    input_folder_path += "\\";
+
+    vector<string> image_names = {};
+    for (int i = 0; i < no; i++)
+    {
+        image_names.push_back(to_string(label) + "(" + to_string(i) + ").jpg");
+    }
+    for (string image_name : image_names) {
+        // Get the file path
+        string image_path = input_folder_path + image_name;
+
+        // Load image
+        Mat image = imread(image_path);
+
+        cvtColor(image, image, COLOR_BGR2GRAY);
+        resize(image, image, Size(256, 256));
+
+
+        //improve contrast
+        equalizeHist(image, image);
+
+        // Save image
+        string output_file = output + "//" + image_name;
+        imwrite(output_file, image);
+    }
+}
+
+void preprocess()
+{
+    //Preprocessing image
+    //Potato Healthy Images
+    string input0 = "C:/Users/Sanved/Desktop/Sanved/Codes/C++/OpenCV/Images/Sample/0_Potato___healthy";
+    string output0 = "C:/Users/Sanved/Desktop/Sanved/Codes/C++/OpenCV/Images/Preprocessed/0_Potato___healthy";
+    preprocess_images(input0, output0, 0, 152);
+
+    //Potato Early Blight Images
+    string input1 = "C:/Users/Sanved/Desktop/Sanved/Codes/C++/OpenCV/Images/Sample/1_Potato___Early_blight";
+    string output1 = "C:/Users/Sanved/Desktop/Sanved/Codes/C++/OpenCV/Images/Preprocessed/1_Potato___Early_blight";
+    preprocess_images(input1, output1, 1, 1000);
+       
+    //Potato Late Blight Images
+    string input2 = "C:/Users/Sanved/Desktop/Sanved/Codes/C++/OpenCV/Images/Sample/2_Potato___Late_blight";
+    string output2 = "C:/Users/Sanved/Desktop/Sanved/Codes/C++/OpenCV/Images/Preprocessed/2_Potato___Late_blight";
+    preprocess_images(input2, output2, 2, 1000);
+}
+void split()
+{
+    string path;
+    int no;
+    short l;
+
+    path = "C:/Users/Sanved/Desktop/Sanved/Codes/C++/OpenCV/Images/Preprocessed/0_Potato___healthy";
+    no = 152;
+    l = 0;
+    path += "\\";
+    for (int i = 0; i<int(0.8 * no); i++)
+    {
+        trainimg.push_back(imread(path + to_string(l) + "(" + to_string(i) + ").jpg"));
+        trainlb.push_back(l);
+    }
+    for (int i = int(0.8 * no);i<no; i++)
+    {
+        testimg.push_back(imread(path + to_string(l) + "(" + to_string(i) + ").jpg"));
+        testlb.push_back(l);
+    }
+
+    path = "C:/Users/Sanved/Desktop/Sanved/Codes/C++/OpenCV/Images/Preprocessed/1_Potato___Early_blight";
+    no = 1000;
+    l = 1;
+    path += "\\";
+    for (int i = 0; i<int(0.8 * no); i++)
+    {
+        trainimg.push_back(imread(path + to_string(l) + "(" + to_string(i) + ").jpg"));
+        trainlb.push_back(l);
+    }
+    for (int i = int(0.8 * no); i < no; i++)
+    {
+        testimg.push_back(imread(path + to_string(l) + "(" + to_string(i) + ").jpg"));
+        testlb.push_back(l);
+    }
+
+    path = "C:/Users/Sanved/Desktop/Sanved/Codes/C++/OpenCV/Images/Preprocessed/2_Potato___Late_blight";
+    no = 1000;
+    l = 2;
+    path += "\\";
+    for (int i = 0; i<int(0.8 * no); i++)
+    {
+        trainimg.push_back(imread(path + to_string(l) + "(" + to_string(i) + ").jpg"));
+        trainlb.push_back(l);
+    }
+    for (int i = int(0.8 * no); i < no; i++)
+    {
+        testimg.push_back(imread(path + to_string(l) + "(" + to_string(i) + ").jpg"));
+        testlb.push_back(l);
+    }
+}
+int main()
+{
+    preprocess();
+    split();    
+    cout << trainimg.size() << endl;
+    cout << trainlb.size() << endl;
+    cout << testimg.size() << endl;
+    cout << testlb.size() << endl;
+
+    HOGDescriptor hog;
+    hog.setSVMDetector(HOGDescriptor::getDefaultPeopleDetector());
+
+    int nti = trainimg.size();
+    Mat trainingdata(nti, hog.getDescriptorSize(), CV_32FC1);
+    for (int i = 0; i < trainimg.size(); i++)
+    {
+        vector<float> hog_features;
+        hog.compute(trainimg[i], hog_features);
+        for (int j = 0; j < hog.getDescriptorSize(); j++) {
+            trainingdata.at<float>(i, j) = hog_features[j];
+        }
+    }
+
+    cv::TermCriteria termCriteria(cv::TermCriteria::MAX_ITER + cv::TermCriteria::EPS, 1000, 1e-6);
+    cv::Ptr<cv::ml::SVM> svm = cv::ml::SVM::create();
+    svm->setType(SVM::C_SVC);
+    svm->setKernel(SVM::RBF);
+    svm->setTermCriteria(termCriteria);
+    Ptr<TrainData> trainData = TrainData::create(trainingdata, ROW_SAMPLE, trainlb);
+    svm->train(trainData);
+    svm->save("trained_model.xml");
+
+    //testing accuracy of the model
+    int num_correct = 0;
+    int num_incorrect = 0;
+    for (int i = 0; i < testimg.size(); i++)
+    {
+        vector<float> hog_features;
+        hog.compute(testimg[i], hog_features);
+        Mat testdata(1, hog.getDescriptorSize(), CV_32FC1);
+        for (int j = 0; j < hog.getDescriptorSize(); j++) {
+            testdata.at<float>(0, j) = hog_features[j];
+        }
+        int predicted_label = svm->predict(testdata);
+        int actual_label = testlb[i];
+        if (predicted_label == actual_label) {
+            num_correct++;
+        }
+        else {
+            num_incorrect++;
+        }
+    }
+    cout << "Number of Correct Predictions: " << num_correct << endl;
+    cout << "Number of Incorrect Predictions: " << num_incorrect << endl;
+    cout << "Accuracy: " << ((double)num_correct / (num_correct + num_incorrect)) * 100 << endl;
+    return 0;
+}
